@@ -1,5 +1,6 @@
 *.log
 *.zip
+*.sav
 recording.txt
 __pycache__
 .*.swp
