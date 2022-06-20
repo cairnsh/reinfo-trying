@@ -2,3 +2,4 @@
 *.zip
 recording.txt
 __pycache__
+.*.swp
