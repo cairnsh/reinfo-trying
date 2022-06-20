@@ -1,0 +1,17 @@
+A big directory of disorganized reinforcement learning stuff for the matrix games project.
+There is also an implementation of VMPO.
+
+How to run this code
+
+To set up the environment, do something like:
+
+    conda create -ngame python<3.10 numpy torch
+    conda activate game
+
+    pip install -e vmpo
+
+    cd ..
+    git clone https://github.com/DLR-RM/stable-baselines3
+    pip install -e stable_baselines3
+
+The -e option lets you edit the modules and have their changes reflected in the python thing.
