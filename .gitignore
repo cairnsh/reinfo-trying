@@ -3,3 +3,4 @@
 recording.txt
 __pycache__
 .*.swp
+*.egg-info
