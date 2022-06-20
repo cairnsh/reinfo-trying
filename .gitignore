@@ -1,4 +1,4 @@
 *.log
-saved-model-*
+*.zip
 recording.txt
 __pycache__
