@@ -1,3 +1,4 @@
 *.log
+saved-model-*
 recording.txt
 __pycache__
