@@ -204,9 +204,14 @@ class VMPO(OnPolicyAlgorithm):
         self.epsilon_eta = EPSILON_ETA
         self.epsilon_alpha = EPSILON_ALPHA
 
-        self.popart_updated_params = [1, 0] # variance, mean
-        self.popart_moving_average = [1, 0] # x2, x
-        self.popart_forward_affine_transform_of_value_network()
+        self.popart_params = [
+            1, # variance
+            0, # mean
+        ]
+        self.popart_moving_average = [
+            1, # average x2
+            0, # average x
+        ]
 
 
     def train(self) -> None:
@@ -245,7 +250,7 @@ class VMPO(OnPolicyAlgorithm):
                     returns_mu = returns_mu.item()
 
                 self.popart_update(returns_sq, returns_mu)
-                self.popart_inverse_affine_transform_of_value_network()
+                self.popart_normalize_value_network_for_training()
 
                 ### END OF POPART
 
@@ -334,7 +339,6 @@ class VMPO(OnPolicyAlgorithm):
                 with th.no_grad():
                     # the lagrangian parameters aren't in the optimizer...
                     # i believe the mot juste is "lol"
-                    # so we'll update them here using sgd
                     def lagrangian_parameter_update(z, lower_limit):
                         z[0] -= LAGRANGIAN_LEARNING_RATE * z._grad[0]
                         if z[0] < lower_limit:
@@ -342,7 +346,7 @@ class VMPO(OnPolicyAlgorithm):
                     lagrangian_parameter_update(alpha, SMALLEST_ALPHA)
                     lagrangian_parameter_update(eta, SMALLEST_ETA)
 
-                self.popart_forward_affine_transform_of_value_network()
+                self.popart_undo_normalization_of_value_network()
 
             if not continue_training:
                 break
@@ -380,7 +384,7 @@ class VMPO(OnPolicyAlgorithm):
         sigma2 = max(sigma2, POPART_VARIANCE_MIN)
         self.popart_updated_params = [sigma2, mu]
 
-    def popart_inverse_affine_transform_of_value_network(self):
+    def popart_normalize_value_network_for_training(self):
         old_sigma2, old_mu = self.popart_params
         layer = self.get_value_layer()
         with th.no_grad():
@@ -390,7 +394,7 @@ class VMPO(OnPolicyAlgorithm):
 
         self.popart_params = None
 
-    def popart_forward_affine_transform_of_value_network(self):
+    def popart_undo_normalization_of_value_network(self):
         sigma2, mu = self.popart_updated_params
         layer = self.get_value_layer()
         with th.no_grad():

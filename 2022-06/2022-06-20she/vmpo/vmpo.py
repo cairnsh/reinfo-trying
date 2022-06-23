@@ -13,13 +13,10 @@ from stable_baselines3.common.utils import explained_variance, get_schedule_fn
 
 from .buffers import RolloutDistBuffer
 
-SMALLEST_ETA = 1e-8
-SMALLEST_ALPHA = 1e-8
+SMALLEST_ETA = 1e-4
+SMALLEST_ALPHA = 1e-4
 EPSILON_ETA = 0.02
 EPSILON_ALPHA = 0.01
-LAGRANGIAN_LEARNING_RATE = 1e-3
-POPART_VARIANCE_MIN = 1e-8
-POPART_AVERAGING_BETA = 1e-1
 
 class VMPO(OnPolicyAlgorithm):
     """
@@ -204,10 +201,10 @@ class VMPO(OnPolicyAlgorithm):
         self.epsilon_eta = EPSILON_ETA
         self.epsilon_alpha = EPSILON_ALPHA
 
-        self.popart_updated_params = [1, 0] # variance, mean
-        self.popart_moving_average = [1, 0] # x2, x
-        self.popart_forward_affine_transform_of_value_network()
-
+        self.popart_params = [
+            1, # variance
+            0, # mean
+        ]
 
     def train(self) -> None:
         """
@@ -244,8 +241,7 @@ class VMPO(OnPolicyAlgorithm):
                     returns_sq = returns_sq.item()
                     returns_mu = returns_mu.item()
 
-                self.popart_update(returns_sq, returns_mu)
-                self.popart_inverse_affine_transform_of_value_network()
+                self.popart_on_value_network(returns_sq, returns_mu)
 
                 ### END OF POPART
 
@@ -317,10 +313,7 @@ class VMPO(OnPolicyAlgorithm):
                     )
                 # Value loss using the TD(gae_lambda) target
 
-
-                popart_sigma2, popart_mu = self.popart_updated_params
-                popart_return = (rollout_data.returns - popart_mu) / np.sqrt(popart_sigma2)
-                value_loss = F.mse_loss(popart_return, values_pred)
+                value_loss = F.mse_loss(self.popart_normalize_values(rollout_data.returns), values_pred)
 
                 loss = policy_loss + temperature_loss + kl_loss + self.vf_coef * value_loss
 
@@ -332,17 +325,10 @@ class VMPO(OnPolicyAlgorithm):
                 self.policy.optimizer.step()
 
                 with th.no_grad():
-                    # the lagrangian parameters aren't in the optimizer...
-                    # i believe the mot juste is "lol"
-                    # so we'll update them here using sgd
-                    def lagrangian_parameter_update(z, lower_limit):
-                        z[0] -= LAGRANGIAN_LEARNING_RATE * z._grad[0]
-                        if z[0] < lower_limit:
-                            z[0] = lower_limit
-                    lagrangian_parameter_update(alpha, SMALLEST_ALPHA)
-                    lagrangian_parameter_update(eta, SMALLEST_ETA)
-
-                self.popart_forward_affine_transform_of_value_network()
+                    if self.policy.alpha[0] < SMALLEST_ALPHA:
+                        self.policy.alpha[0] = SMALLEST_ALPHA
+                    if self.policy.eta[0] < SMALLEST_ETA:
+                        self.policy.eta[0] = SMALLEST_ETA
 
             if not continue_training:
                 break
@@ -369,35 +355,24 @@ class VMPO(OnPolicyAlgorithm):
     def get_value_layer(self):
         return self.policy.value_net
 
-    def popart_update(self, sigma2, mu):
-        x2, x = self.popart_moving_average
-        x2 += POPART_AVERAGING_BETA * (sigma2 + mu*mu - x2)
-        x += POPART_AVERAGING_BETA * (mu - x)
-        
-        self.popart_moving_average = [x2, x]
-        sigma2 = x2 - x*x
-        mu = x
-        sigma2 = max(sigma2, POPART_VARIANCE_MIN)
-        self.popart_updated_params = [sigma2, mu]
-
-    def popart_inverse_affine_transform_of_value_network(self):
+    def popart_on_value_network(self, sigma2, mu):
         old_sigma2, old_mu = self.popart_params
+
         layer = self.get_value_layer()
         with th.no_grad():
+            layer.bias[:] *= np.sqrt(old_sigma2)
+            layer.weight[:] *= np.sqrt(old_sigma2)
+            layer.bias[:] += old_mu
+
             layer.bias[:] -= old_mu
-            layer.weight[:] /= np.sqrt(old_sigma2)
-            layer.bias[:] /= np.sqrt(old_sigma2)
+            layer.weight[:] /= np.sqrt(sigma2)
+            layer.bias[:] /= np.sqrt(sigma2)
 
-        self.popart_params = None
-
-    def popart_forward_affine_transform_of_value_network(self):
-        sigma2, mu = self.popart_updated_params
-        layer = self.get_value_layer()
-        with th.no_grad():
-            layer.bias[:] *= np.sqrt(sigma2)
-            layer.weight[:] *= np.sqrt(sigma2)
-            layer.bias[:] += mu
         self.popart_params = [sigma2, mu]
+
+    def popart_normalize_values(self, values):
+        sigma2, mu = self.popart_params
+        return (values - mu) / np.sqrt(sigma2)
 
     def learn(
         self,
@@ -407,7 +382,7 @@ class VMPO(OnPolicyAlgorithm):
         eval_env: Optional[GymEnv] = None,
         eval_freq: int = -1,
         n_eval_episodes: int = 5,
-        tb_log_name: str = "VMPO",
+        tb_log_name: str = "PPO",
         eval_log_path: Optional[str] = None,
         reset_num_timesteps: bool = True,
     ) -> "PPO":
