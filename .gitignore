@@ -3,5 +3,5 @@
 *.sav
 recording.txt
 __pycache__
-.*.swp
+.*.sw?
 *.egg-info
