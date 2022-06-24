@@ -61,7 +61,10 @@ print("Hit Ctrl-\ to get a prompt.")
 vmpo_options = dict(
     batch_size=128,
     policy_kwargs = dict(
-        optimizer_class=torch.optim.SGD
+        optimizer_class=torch.optim.SGD,
+        optimizer_kwargs=dict(
+            weight_decay=1e-3,
+        ),
     ),
     learning_rate=1e-3,
     gamma=0.99,
@@ -84,6 +87,6 @@ if True:
             interactive_prompt.go(locals())
             prompt[0] = False
     callback.after_training_epoch = savemodel
-    model.learn(callback=callback, total_timesteps=int(400000))
+    model.learn(callback=callback, total_timesteps=int(1000000))
     # Save the agent
     model.save("vmpo")

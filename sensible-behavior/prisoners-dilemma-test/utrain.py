@@ -63,7 +63,7 @@ if True:
     model = SeveralAlgorithms([
         VMPO.load("vmpo-%d" % j, env)
         for j in range(1)
-    ] + [all_defect(env) for _ in range(5)], env)
+    ] + [tit_for_tat(env), tit_for_tat(env), tit_for_tat(env)] + [all_cooperate(env)] + [all_defect(env) for _ in range(1)], env)
     # Train the agent
     callback = RecorderCallback("extra-recording.txt")
     def savemodel(model, timesteps):
