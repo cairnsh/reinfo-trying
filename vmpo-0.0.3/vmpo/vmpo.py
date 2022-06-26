@@ -25,8 +25,6 @@ class VMPO(OnPolicyAlgorithm):
     """
     V-MPO (Value Maximum a Posteriori Policy Optimization)
 
-    The default optimizer for VMPO is SGD!
-
     Paper: https://arxiv.org/abs/1909.12238v1
     Code: The starting point for this code was the implementation of PPO in Stable Baselines 3
         (https://github.com/DLR-RM/stable-baselines3)
@@ -111,14 +109,7 @@ class VMPO(OnPolicyAlgorithm):
         seed: Optional[int] = None,
         device: Union[th.device, str] = "auto",
         _init_setup_model: bool = True,
-        epsilon_eta = EPSILON_ETA,
-        epsilon_alpha = EPSILON_ALPHA,
     ):
-
-        # the default policy for this is SGD
-        if policy_kwargs is None:
-            policy_kwargs = {}
-        policy_kwargs.setdefault("optimizer_class", th.optim.SGD)
 
         super().__init__(
             policy,
@@ -178,8 +169,6 @@ class VMPO(OnPolicyAlgorithm):
         self.clip_range_vf = clip_range_vf
         self.normalize_advantage = normalize_advantage
         self.target_kl = target_kl
-        self.epsilon_eta = epsilon_eta
-        self.epsilon_alpha = epsilon_alpha
 
         if _init_setup_model:
             self._setup_model()
@@ -212,7 +201,11 @@ class VMPO(OnPolicyAlgorithm):
 
         self.policy.eta = param_with_initial_value(SMALLEST_ETA)
         self.policy.alpha = param_with_initial_value(SMALLEST_ALPHA)
-        self.popart_initializer()
+        self.epsilon_eta = EPSILON_ETA
+        self.epsilon_alpha = EPSILON_ALPHA
+
+        self.popart_updated_params = [1, 0] # variance, mean
+        self.popart_moving_average = [1, 0] # x2, x
         self.popart_forward_affine_transform_of_value_network()
 
 
@@ -301,7 +294,12 @@ class VMPO(OnPolicyAlgorithm):
                 # but we can approximate it like this??
 
                 old_dist = rollout_data.distributions
+                #print(old_dist)
+                #print(log_dist)
                 approximatekl = th.sum(th.exp(old_dist) * (old_dist - log_dist))
+                #current_dist = 
+                #approximatekl = rollout_data.old_log_prob - log_prob
+
                 alpha = self.policy.alpha
 
                 kl_loss = th.mean(
@@ -372,9 +370,6 @@ class VMPO(OnPolicyAlgorithm):
         return self.policy.value_net
 
     def popart_update(self, sigma2, mu):
-        # the concept of popart is that you maintain moving averages of the mean and std dev of the value targets, then
-        # instantly rescale and shift the final layer of the network from the old average to the new average without going through gradients
-        # the value loss is supposed to be calculated with the unscaled network against inverse-scaled value targets, so that its parameters stay around their original initialization
         x2, x = self.popart_moving_average
         x2 += POPART_AVERAGING_BETA * (sigma2 + mu*mu - x2)
         x += POPART_AVERAGING_BETA * (mu - x)
@@ -386,7 +381,6 @@ class VMPO(OnPolicyAlgorithm):
         self.popart_updated_params = [sigma2, mu]
 
     def popart_inverse_affine_transform_of_value_network(self):
-        # do the opposite transformation of forward_affine_transform
         old_sigma2, old_mu = self.popart_params
         layer = self.get_value_layer()
         with th.no_grad():
@@ -397,7 +391,6 @@ class VMPO(OnPolicyAlgorithm):
         self.popart_params = None
 
     def popart_forward_affine_transform_of_value_network(self):
-        # add scale and bias to the value network
         sigma2, mu = self.popart_updated_params
         layer = self.get_value_layer()
         with th.no_grad():
@@ -405,10 +398,6 @@ class VMPO(OnPolicyAlgorithm):
             layer.weight[:] *= np.sqrt(sigma2)
             layer.bias[:] += mu
         self.popart_params = [sigma2, mu]
-
-    def popart_initializer(self):
-        self.popart_updated_params = [1, 0] # variance, mean
-        self.popart_moving_average = [1, 0] # x2, x
 
     def learn(
         self,
