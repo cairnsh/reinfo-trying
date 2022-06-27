@@ -1,0 +1,14 @@
+Setting up environment:
+
+conda create -ngame python<3.10 numpy scipy pytorch -c pytorch
+conda activate game
+
+pip install -e vmpo
+
+cd ..
+git clone https://github.com/DLR-RM/stable-baselines3
+pip install -e stable_baselines3
+
+==
+
+Run train.py to run the training, and watch-recording.py to see how the rewards change.
