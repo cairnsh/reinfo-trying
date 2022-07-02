@@ -113,7 +113,7 @@ class VMPO(OnPolicyAlgorithm):
         _init_setup_model: bool = True,
         epsilon_eta = EPSILON_ETA,
         epsilon_alpha = EPSILON_ALPHA,
-        discard_the_lowest_half_of_advantages = False,
+        discard_the_lowest_half_of_advantages = True,
     ):
 
         # the default policy for this is SGD

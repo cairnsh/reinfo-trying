@@ -113,7 +113,6 @@ class VMPO(OnPolicyAlgorithm):
         _init_setup_model: bool = True,
         epsilon_eta = EPSILON_ETA,
         epsilon_alpha = EPSILON_ALPHA,
-        discard_the_lowest_half_of_advantages = False,
     ):
 
         # the default policy for this is SGD
@@ -181,7 +180,6 @@ class VMPO(OnPolicyAlgorithm):
         self.target_kl = target_kl
         self.epsilon_eta = epsilon_eta
         self.epsilon_alpha = epsilon_alpha
-        self.discard_the_lowest_half_of_advantages = discard_the_lowest_half_of_advantages
 
         if _init_setup_model:
             self._setup_model()
@@ -275,21 +273,13 @@ class VMPO(OnPolicyAlgorithm):
                 if self.normalize_advantage:
                     advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-                # if discard_the_lowest_half_of_advantages, then
-                # throw out the half of the data with the lowest advantages
-                if self.discard_the_lowest_half_of_advantages:
-                    advantages_h, indices_h = th.topk(
-                        advantages,
-                        advantages.shape[0] // 2
-                    )
-
-                    values_h = values[indices_h]
-
-                    log_prob_h = log_prob[indices_h]
-                else:
-                    advantages_h = advantages
-                    values_h = values
-                    log_prob_h = log_prob
+                # throw out half of the data
+                full = advantages.shape[0]
+                half = full//2
+                advantages_h, indices_h = th.topk(advantages, half)
+                values_h = values[indices_h]
+                log_prob_h = log_prob[indices_h]
+                #entropy = entropy[indices_h]
 
                 eta = self.policy.eta
 
@@ -298,22 +288,24 @@ class VMPO(OnPolicyAlgorithm):
 
                 e_advantages = th.exp(advantages_h / eta)
                 sum_of_e_advantages = th.sum(e_advantages)
-                mean_of_e_advantages = sum_of_e_advantages / e_advantages.shape[0]
                 psi = e_advantages / sum_of_e_advantages
 
                 policy_loss = -th.dot(psi, log_prob_h)
 
-                temperature_loss = eta * (self.epsilon_eta + advantages_offset/eta + th.log(mean_of_e_advantages))
+                temperature_loss = eta * (self.epsilon_eta + advantages_offset/eta + th.log(sum_of_e_advantages / half))
                 #if np.random.random() < 0.001:
                     #print(eta, values_h)
 
-                # The Kullback-Leibler divergence between the old policy and the new one
+                # now we have to get the kl loss between the old action distribution and the new one
+                # (using the whole batch of states)
+                # but we can approximate it like this??
+
                 old_dist = rollout_data.distributions
-                kld = th.sum(th.exp(old_dist) * (old_dist - log_dist))
+                approximatekl = th.sum(th.exp(old_dist) * (old_dist - log_dist))
                 alpha = self.policy.alpha
 
                 kl_loss = th.mean(
-                    alpha * (self.epsilon_alpha - kld.detach()) + alpha.detach() * kld
+                    alpha * (self.epsilon_alpha - approximatekl.detach()) + alpha.detach() * approximatekl
                 )
 
                 if self.clip_range_vf is None:
